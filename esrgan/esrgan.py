@@ -15,23 +15,22 @@ import keras.layers as kl
 from tensorflow._api.v2.nn import depth_to_space
 
 class ESRGAN(object):
-    def __init__(self):
-        input = kl.Input((None, None, 3))
-        self.genx = kl.Rescaling(scale = 1.0/255, offset = 0.0)(input)
-        self.disx = kl.Rescaling(scale = 1.0/127.5, offset = -1)(input)
-        
 
     def ConvBlock(self, xIn, featureMaps, leakyAlpha):
-        self.genx = kl.Conv2D(featureMaps, 9, 1, padding = "same")(self.genx)
-        self.genx = kl.LeakyReLU(leakyAlpha)(self.genx)
+        xIn = kl.Conv2D(featureMaps, 9, 1, padding = "same")(xIn)
+        xIn = kl.LeakyReLU(leakyAlpha)(self.genx)
+        return xIn
+
 
     def UpsampleBlock():
         pass
 
-    def RRDBlock(self, featureMaps, leakyAlpha, residualScalar):
-        x = kl.Conv2D(featureMaps, 3, 1, padding = "same")(self.genx)
+    def RRDBlock(self, xIn, featureMaps, leakyAlpha, residualScalar):
+        ''' Residual in Residual Dense Block '''
+
+        x = kl.Conv2D(featureMaps, 3, 1, padding = "same")(xIn)
         x1 = kl.LeakyReLU(leakyAlpha)(x)
-        x1 = kl.Add() ([self.genx, x1])
+        x1 = kl.Add() ([xIn, x1])
 
         x = kl.Conv2D(featureMaps, 3, 1, padding = "same")(x1)
         x2 = kl.LeakyReLU(leakyAlpha)(x)
@@ -48,6 +47,7 @@ class ESRGAN(object):
         x4 = kl.Conv2D(featureMaps, 3, 1, padding = "same")(x4)
         xSkip = kl.Add() ([self.genx, x4])
 
+        ## scaling residual outputs with scalar between range(0,1)
         xSkip = kl.Lambda(lambda x : x * residualScalar) (xSkip)
         return xSkip
 
@@ -67,6 +67,11 @@ class ESRGAN(object):
         xIn = kl.Rescaling(scale = 1.0/255, offset = 0.0)(input)
 
         ## Convolution Filter Block
+        xIn = self.ConvBlock(xIn, featureMaps, leakyAlpha)
+
+        ## Residual in Residual Blocks
+        for block in range(residualBlocks) :
+            xSkip = self.RRDBlock(xIn, featureMaps, leakyAlpha, residualScalar)
 
 
     def Discriminator():
