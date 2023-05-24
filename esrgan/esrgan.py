@@ -10,7 +10,7 @@ Residual Blocks (RRDB)- made up of three Dense Blocks (DB)
 Upsampler by 2
 Convolution filter (k3n64s1)
 """
-
+import tensorflow as tf
 import keras.layers as kl
 from tensorflow._api.v2.nn import depth_to_space
 
@@ -22,8 +22,12 @@ class ESRGAN(object):
         return xIn
 
 
-    def UpsampleBlock():
-        pass
+    def UpsampleBlock(self, x, featureMaps, leakyAlpha):
+        x = kl.Conv2D(featureMaps, 3, padding = "same")(x)
+        x = depth_to_space(x, 2)
+        x = kl.LeakyReLU(leakyAlpha)(x)
+        return x
+
 
     def RRDBlock(self, xIn, featureMaps, leakyAlpha, residualScalar):
         ''' Residual in Residual Dense Block '''
@@ -37,7 +41,7 @@ class ESRGAN(object):
         x2 = kl.Add() ([x1, x2])
 
         x = kl.Conv2D(featureMaps, 3, 1, padding = "same")(x2)
-        x3 = kl.LeakyReLU(leakyAlpha)(x)
+        x3 = kl.LeakyReLU(leakyAlpha)(x) 
         x3 = kl.Add() ([x2, x3])
 
         x = kl.Conv2D(featureMaps, 3, 1, padding = "same")(x3)
@@ -50,6 +54,13 @@ class ESRGAN(object):
         ## scaling residual outputs with scalar between range(0,1)
         xSkip = kl.Lambda(lambda x : x * residualScalar) (xSkip)
         return xSkip
+    
+    def DiscriminatorBlock(self, x, featureMaps, strides, leakyAlpha):
+        x = kl.Conv2D(featureMaps, 3, strides, padding = "same") (x)
+        x = kl.BatchNormalization() (x)
+        x = kl.LeakyReLU(leakyAlpha) (x)
+
+        return x
 
     def Generator(self, scalingFactor, featureMaps, residualBlocks, leakyAlpha, residualScalar):
         '''
@@ -63,7 +74,7 @@ class ESRGAN(object):
         
         ## initalize input layer
         ## scaling pixels to in range(0, 1)
-        input = kl.Input((None, None, 3))
+        input = tf.keras.Input((None, None, 3))
         xIn = kl.Rescaling(scale = 1.0/255, offset = 0.0)(input)
 
         ## Convolution Filter Block
@@ -72,8 +83,43 @@ class ESRGAN(object):
         ## Residual in Residual Blocks
         for block in range(residualBlocks) :
             xSkip = self.RRDBlock(xIn, featureMaps, leakyAlpha, residualScalar)
+        
+        ## 
+        x = kl.Conv2D(featureMaps, 3, padding = "same")(xSkip)
+        x = kl.Add() ([xIn, x])
 
+        ## UpSample
+        x = self.UpsampleBlock(x, featureMaps * (scalingFactor // 2), leakyAlpha)
+        x = self.UpsampleBlock(x, featureMaps, leakyAlpha)
 
-    def Discriminator():
-        pass
+        ## Output layer
+        x = kl.Conv2D(3, 9, 1, padding = "same", activation = "tanh") (x)
+        output = kl.Rescaling(scale = 127.5, offset = 127.5) (x)
+
+        ## Generator Model
+        generator = tf.keras.Model(input, output)
+
+        return generator
+
+    def Discriminator(self, featureMaps, leakyAlpha, discBlocks):
+
+        ## Input Layers
+        input = tf.keras.Input((None, None, 3))
+        x = kl.Rescaling(scale = 1.0/127.5, offset = -1) (input)
+        x = self.ConvBlock(x, featureMaps, leakyAlpha)
+
+        x = self.DiscriminatorBlock(x, featureMaps, 1, leakyAlpha)
+
+        for i in range(1, discBlocks):
+            x = self.DiscriminatorBlock(x, featureMaps * (2**i), 2, leakyAlpha)
+            x = self.DiscriminatorBlock(x, featureMaps * (2**i), 1, leakyAlpha)
+
+        x = kl.GlobalAveragePooling2D() (x)
+        x = kl.LeakyReLU(leakyAlpha) (x)
+
+        x = kl.Dense(1, activation = "sigmoid") (x)
+
+        discriminator = tf.keras.Model(input, x)
+
+        return discriminator
     
