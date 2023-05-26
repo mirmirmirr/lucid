@@ -18,7 +18,7 @@ class ESRGAN(object):
 
     def ConvBlock(self, xIn, featureMaps, leakyAlpha):
         xIn = kl.Conv2D(featureMaps, 9, 1, padding = "same")(xIn)
-        xIn = kl.LeakyReLU(leakyAlpha)(self.genx)
+        xIn = kl.LeakyReLU(leakyAlpha)(xIn)
         return xIn
 
 
@@ -49,7 +49,7 @@ class ESRGAN(object):
         x4 = kl.Add() ([x3, x4])
 
         x4 = kl.Conv2D(featureMaps, 3, 1, padding = "same")(x4)
-        xSkip = kl.Add() ([self.genx, x4])
+        xSkip = kl.Add() ([xIn, x4])
 
         ## scaling residual outputs with scalar between range(0,1)
         xSkip = kl.Lambda(lambda x : x * residualScalar) (xSkip)
@@ -59,7 +59,6 @@ class ESRGAN(object):
         x = kl.Conv2D(featureMaps, 3, strides, padding = "same") (x)
         x = kl.BatchNormalization() (x)
         x = kl.LeakyReLU(leakyAlpha) (x)
-
         return x
 
     def Generator(self, scalingFactor, featureMaps, residualBlocks, leakyAlpha, residualScalar):
@@ -122,4 +121,36 @@ class ESRGAN(object):
         discriminator = tf.keras.Model(input, x)
 
         return discriminator
-    
+
+def initialize_weights(model, scale=0.1):
+    for layer in model.layers:
+        if isinstance(layer, kl.Conv2D):
+            initializer = tf.keras.initializers.HeNormal()
+            weights = layer.get_weights()
+            weights[0] = initializer(weights[0].shape)
+            weights[0] *= scale
+            layer.set_weights(weights)
+        
+        elif isinstance(layer, kl.Dense):
+            initializer = tf.keras.initializers.HeNormal()
+            weights = layer.get_weights()
+            weights[0] = initializer(weights[0].shape)
+            weights[0] *= scale
+            layer.set_weights(weights)
+
+def test():
+    esrgan = ESRGAN()
+
+    gen = esrgan.Generator(4, 64, 16, 0.2, 0.2)
+    disc = esrgan.Discriminator(64, 0.2, 4)
+
+    low_res = 24
+    x = tf.random.normal((5, low_res, low_res, 3))
+    gen_out = gen(x)
+    disc_out = disc(gen_out)
+
+    print(gen_out.shape)
+    print(disc_out.shape)
+
+if __name__ == "__main__":
+    test()

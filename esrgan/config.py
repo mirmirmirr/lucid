@@ -1,0 +1,9 @@
+import os
+import albumentations 
+
+FEATURE_MAPS = 64
+RESIDUAL_BLOCKS = 16
+LEAKY_ALPHA = 0.2
+DISC_BLOCKS = 4
+RESIDUAL_SCALAR = 0.2
+
