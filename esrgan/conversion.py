@@ -2,13 +2,26 @@ import torch
 import torchvision
 import onnx
 import onnx2keras
+from torch import nn
+
+class Generator(nn.Module):
+    def __init__(self, in_channels=3, num_channels=64, num_blocks=23):
+        super().__init__()
+        self.initial = nn.Conv2d(
+            in_channels, 
+            num_channels,
+            kernel_size = 3,
+            stride = 1,
+            padding = 1,
+        )
+    
+    # def RRDB(self, )
+
+    pass
 
 # Step 1: Convert PyTorch model to ONNX format
 torch_model = torchvision.models  # Load your PyTorch model here
-torch_model.load_state_dict(torch.load('esrgan/model.pth')['params_ema'])
-
-# weight = torchvision.models.resnet50(weights = 'esrgan/model.pth')
-# torch_model = weight
+torch_model.load_state_dict(torch.load('esrgan/model.pth'))
 
 dummy_input = torch.randn(1, 3, 224, 224)  # Provide a dummy input shape
 onnx_path = 'model.onnx'
