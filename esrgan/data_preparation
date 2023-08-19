@@ -1,0 +1,127 @@
+'''
+the model from the original ESRGAN was trained from the DIV2K, Flickr2K, and OutdoorSceneTraning
+datatsets. this current model will only be trained from the DIV2K dataset for now, but in future
+versions, I hope to also train the model on the other two datatsets and another datatset specifically
+for logos and designs.
+
+Model is trained in RGB channels with random horizontal flips and 90 degree rotations.
+'''
+
+import cv2
+import os
+import random
+import opendatasets as od
+
+# tensorflow dependencies (model compenents and deep learning components)
+# using tensorflow funcational api
+import tensorflow as tf
+import tensorflow_datasets as tfds
+
+AUTO = tf.data.AUTOTUNE
+
+def cropping(loRes, hiRes, random=False, center=False, crop_size=96, scale=4):
+    '''
+    This function will perform a random cropping of two imput images, one of low resolution and
+    another of high resolution. This is so images patches are created at a specific size to be fed
+    into the program to train the model. It will return a tuple with the two cropped patches.
+    '''
+
+    ## low res image crop size calculated form the high res image crop
+    ## outputted high resolution image will be 4 times larger than the low res image
+    loRes_crop = crop_size//4
+    loRes_shape = tf.shape(loRes)[:2]
+
+    if random:
+        lowidth = tf.random.uniform(shape=(),
+		    maxval=loRes_shape[1] - loRes_crop + 1, dtype=tf.int32)
+        loheight = tf.random.uniform(shape=(),
+		    maxval=loRes_shape[0] - loRes_crop + 1, dtype=tf.int32)
+
+        hiheight = loheight*scale
+        hiwidth = lowidth*scale
+
+    elif center:
+        height = loRes_shape[0] // 2
+        width = loRes_shape[1] // 2
+
+        loheight = (height) + (loRes_crop//2)
+        lowidth = (width) + (loRes_crop//2)
+
+        hiheight = (height*scale) + (crop_size//2)
+        hiwidth = (width*scale) + (crop_size//2)
+
+
+    loRes_cropped = tf.slice(loRes, [loheight, lowidth, 0], [(loRes_crop), (loRes_crop), 3])
+    hiRes_cropped = tf.slice(hiRes, [hiheight, hiwidth, 0], [(crop_size), (crop_size), 3])
+
+    return (loRes_cropped, hiRes_cropped)
+
+def augmentations(loRes, hiRes):
+
+    ## flipping
+    if tf.random.uniform([]) < 0.5:
+        loRes = tf.image.flip_left_right(loRes)
+        hiRes = tf.image.flip_left_right(hiRes)
+    if tf.random.uniform([]) < 0.5:
+        loRes = tf.image.flip_up_down(loRes)
+        hiRes = tf.image.flip_up_down(hiRes)
+
+    ## rotating
+    if tf.random.uniform([]) < 0.5:
+        loRes = tf.image.rot90(loRes)
+        hiRes = tf.image.rot90(hiRes)
+
+    return (loRes, hiRes)
+
+def load_train(data):
+    features = {
+        "lr": tf.io.FixedLenFeature([], tf.string),
+        "hr": tf.io.FixedLenFeature([], tf.string),
+      }
+
+    example_image = tf.io.parse_single_example(data, features)
+
+    loRes = tf.io.parse_tensor(example_image['lr'], out_type = tf.uint8)
+    hiRes = tf.io.parse_tensor(example_image['hr'], out_type = tf.uint8)
+
+    (loRes, hiRes) = cropping(loRes, hiRes, random=True)
+    (loRes, hiRes) = augmentations(loRes, hiRes)
+
+    loRes = tf.reshape(loRes, (24, 24, 3))
+    hiRes = tf.reshape(hiRes, (96, 96, 3))
+
+    return (loRes, hiRes)
+
+def load_test(data):
+    features = {
+      "lr": tf.io.FixedLenFeature([], tf.string),
+      "hr": tf.io.FixedLenFeature([], tf.string),
+    }
+
+    example_image = tf.io.parse_single_example(data, features)
+
+    loRes = tf.io.parse_tensor(example_image['lr'], out_type = tf.uint8)
+    hiRes = tf.io.parse_tensor(example_image['hr'], out_type = tf.uint8)
+
+    (loRes, hiRes) = cropping(loRes, hiRes, center=True)
+
+    loRes = tf.reshape(loRes, (24, 24, 3))
+    hiRes = tf.reshape(hiRes, (96, 96, 3))
+
+    return (loRes, hiRes)
+
+def justload(filenames, batchSize, train=False):
+    dataset = tf.data.TFRecordDataset(filenames, num_parallel_reads=AUTO)
+
+    if train:
+        dataset = dataset.map(load_train, num_parallel_calls=AUTO)
+    else:
+        dataset = dataset.map(load_test, num_parallel_calls=AUTO)
+
+    # dataset = dataset.cache()
+    dataset = dataset.shuffle(batchSize)
+    dataset = dataset.batch(batchSize)
+    dataset = dataset.repeat()
+    dataset = dataset.prefetch(AUTO)
+
+    return dataset
